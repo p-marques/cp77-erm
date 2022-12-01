@@ -1,100 +1,125 @@
-// Eddies Received Multiplier by pMarK
-// v1.1
+module ERM.Base
+import ERM.Settings.ERMSettings
+import ERM.Settings.Menu
 
-module EddiesReceivedMult.Base
+public class ERMSystem extends ScriptableSystem {
+    private let player: ref<PlayerPuppet>;
+    private let transactionSystem: ref<TransactionSystem>;
+    private let ermCallback: ref<ERMCallback>;
+    private let inventoryListener: ref<InventoryScriptListener>;
+    private let lastRequestHandled: Bool;
+    private let settings: ref<ERMSettings>;
 
-public class EddiesReceivedMult {
-  private let multiplier: Float;
-  private let player: wref<PlayerPuppet>;
-  private let transactionSystem: ref<TransactionSystem>;
-  private let blackboard: ref<IBlackboard>;
-  private let flag: Bool;
-  private let debugMode: Bool;
+    private func OnPlayerAttach(request: ref<PlayerAttachRequest>) -> Void {
+        this.player = GameInstance.GetPlayerSystem(request.owner.GetGame()).GetLocalPlayerMainGameObject() as PlayerPuppet;
+        this.transactionSystem = GameInstance.GetTransactionSystem(this.GetGameInstance());
 
-  public func Setup(player: wref<PlayerPuppet>) -> Void {
-    this.player = player;
-    this.transactionSystem = GameInstance.GetTransactionSystem(player.GetGame());
-    this.blackboard = GameInstance.GetBlackboardSystem(player.GetGame()).Get(GetAllBlackboardDefs().UI_Notifications);
-    this.SetupSettings();
-  }
+        this.ermCallback = new ERMCallback();
+        this.ermCallback.ermSys = this;
+        this.inventoryListener = this.transactionSystem.RegisterInventoryListener(this.player, this.ermCallback);
 
-  protected func SetupSettings() -> Void {
-    // ------ Settings Start ------
+        this.settings = GetSettings();
+        this.settings.Setup();
 
-    this.debugMode = false; // Show debug message every time the player receives eddies.
-    this.multiplier = 1.0;
-
-    // ------ Settings End ------
-  }
-
-  public func DeltaEddies(itemDataQuantity: Int32, currentQuantity: Int32) -> Void {
-    let originalValue: Int32;
-    let newTotalValue: Int32;
-    let delta: Int32;
-    let msg: String;
-    let multValue: Float = this.GetMultiplier();
-
-    if this.ShouldDeltaEddies(multValue) {
-      originalValue = itemDataQuantity - currentQuantity;
-      newTotalValue = Cast<Int32>(Cast<Float>(originalValue) * multValue);
-      delta = newTotalValue - originalValue;
-
-      if originalValue == 0 {
-        // For some reason the game invokes 0 eddies received events.
-        // I noticed this when fighting enemies with bounties. At every kill a 0 eddie event is consumed.
-        // You actually get the total money when the fight is over.
-        return;
-      }
-
-      if delta < 0 {
-        this.transactionSystem.RemoveItem(this.player, MarketSystem.Money(), -delta);
-      }
-      else {
-        this.transactionSystem.GiveItem(this.player, MarketSystem.Money(), delta);
-
-        this.flag = true;
-      }
-
-      if this.GetShowDebugMsg() {
-        msg = "Original value: " + originalValue + "\\n" + "New total: " + newTotalValue + "\\n" + "Delta: " + delta + "\\n" + "Multiplier: " + Cast<Int32>(multValue * 100.0) + "%";
-
-        this.ShowMessage(msg);
-      }
-    }
-    else {
-      this.flag = false;
-    }
-  }
-
-  protected func GetIsEnabled() -> Bool {
-    return true;
-  }
-
-  protected func GetMultiplier() -> Float {
-    return this.multiplier;
-  }
-
-  protected func GetShowDebugMsg() -> Bool {
-    return this.debugMode;
-  }
-
-  protected func GetDebugMsgDuration() -> Float {
-    return 12.0;
-  }
-
-  private func ShouldDeltaEddies(multiplier: Float) -> Bool {
-    if multiplier == 1.0 || multiplier < 0.0 {
-      return false;
+        // this.Log("::OnPlayerAttach");
     }
 
-    return !this.flag && this.GetIsEnabled();
-  }
+    private func OnPlayerDetach(request: ref<PlayerDetachRequest>) -> Void {
+        this.transactionSystem.UnregisterInventoryListener(this.player, this.inventoryListener);
+        this.inventoryListener = null;
 
-  protected func ShowMessage(message : String) -> Void {
-    let warningMsg: SimpleScreenMessage;
-    warningMsg.isShown = true;
-    warningMsg.duration = this.GetDebugMsgDuration();
-    warningMsg.message = message;
-    this.blackboard.SetVariant(GetAllBlackboardDefs().UI_Notifications.WarningMessage, ToVariant(warningMsg), true);
-  }
+        // this.Log("::OnPlayerDetach");
+    }
+
+    public func OnEddiesChanged(request: ref<ERMHandleEddiesChangedRequest>) -> Void {
+        let delta: Int32;
+        let multiplier: Float;
+
+        // this.Log("::OnEddiesChanged");
+
+        if !this.settings.GetIsEnabled() {
+            // this.Log("ERM is disabled.");
+
+            return;
+        }
+
+        if request.diffAmount < 1 {
+            // this.Log("diffAmount was 0 or negative. Ignoring...");
+
+            return;
+        }
+
+        if !this.lastRequestHandled {
+            multiplier = this.settings.GetMultiplier();
+
+            if multiplier < 0.1 {
+                multiplier = 1.0;
+
+                // this.Log("Multiplier < 0.1, defaulting to 1.0");
+            }
+
+            if Equals(multiplier, 1.0) {
+                // this.Log("Multiplier == 1.0, no delta...");
+
+                return;
+            }
+
+            delta = Cast<Int32>(Cast<Float>(request.diffAmount) * multiplier) - request.diffAmount;
+
+            if delta > 0 {
+                this.transactionSystem.GiveItem(this.player, MarketSystem.Money(), delta);
+            }
+            else {
+                this.transactionSystem.RemoveItem(this.player, MarketSystem.Money(), -delta);
+            }
+
+            if this.settings.GetShowExtraEddiesMsg() {
+                GameInstance.GetActivityLogSystem(this.GetGameInstance()).AddLog("[ERM] Received " + delta + " extra eddies.");
+            }
+
+            this.lastRequestHandled = true;
+
+            // this.Log("Request handled. " + request.diffAmount + " * " + multiplier + " = " + (delta + request.diffAmount));
+        }
+        else {
+            this.lastRequestHandled = false;
+
+            // this.Log("request not handled.");
+        }
+    }
+
+    private func Log(msg: String) -> Void {
+        LogChannel(n"ERMSystem", msg);
+    }
+}
+
+public class ERMCallback extends InventoryScriptCallback {
+    public let ermSys: ref<ERMSystem>;
+
+    public func OnItemQuantityChanged(item: ItemID, diff: Int32, total: Uint32, flaggedAsSilent: Bool) -> Void {
+        let request: ref<ERMHandleEddiesChangedRequest>;
+
+        if Equals(MarketSystem.Money(), item) {
+            if IsDefined(this.ermSys) {
+                request = new ERMHandleEddiesChangedRequest();
+                request.diffAmount = diff;
+
+                this.ermSys.QueueRequest(request);
+            }
+        }
+    }
+}
+
+public class ERMHandleEddiesChangedRequest extends ScriptableSystemRequest {
+    public let diffAmount: Int32;
+}
+
+@if(!ModuleExists("ModSettingsModule"))
+public func GetSettings() -> ref<ERMSettings> {
+    return new ERMSettings();
+}
+
+@if(ModuleExists("ModSettingsModule"))
+public func GetSettings() -> ref<ERMSettings> {
+    return new Menu();
 }
