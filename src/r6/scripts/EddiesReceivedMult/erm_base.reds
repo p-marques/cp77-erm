@@ -1,6 +1,5 @@
 module ERM.Base
 import ERM.Settings.ERMSettings
-import ERM.Settings.Menu
 
 public class ERMSystem extends ScriptableSystem {
     private let player: ref<PlayerPuppet>;
@@ -20,32 +19,22 @@ public class ERMSystem extends ScriptableSystem {
 
         this.settings = GetSettings();
         this.settings.Setup();
-
-        // this.Log("::OnPlayerAttach");
     }
 
     private func OnPlayerDetach(request: ref<PlayerDetachRequest>) -> Void {
         this.transactionSystem.UnregisterInventoryListener(this.player, this.inventoryListener);
         this.inventoryListener = null;
-
-        // this.Log("::OnPlayerDetach");
     }
 
     public func OnEddiesChanged(request: ref<ERMHandleEddiesChangedRequest>) -> Void {
         let delta: Int32;
         let multiplier: Float;
 
-        // this.Log("::OnEddiesChanged");
-
         if !this.settings.GetIsEnabled() {
-            // this.Log("ERM is disabled.");
-
             return;
         }
 
         if request.diffAmount < 1 {
-            // this.Log("diffAmount was 0 or negative. Ignoring...");
-
             return;
         }
 
@@ -54,13 +43,9 @@ public class ERMSystem extends ScriptableSystem {
 
             if multiplier < 0.1 {
                 multiplier = 1.0;
-
-                // this.Log("Multiplier < 0.1, defaulting to 1.0");
             }
 
             if Equals(multiplier, 1.0) {
-                // this.Log("Multiplier == 1.0, no delta...");
-
                 return;
             }
 
@@ -78,18 +63,10 @@ public class ERMSystem extends ScriptableSystem {
             }
 
             this.lastRequestHandled = true;
-
-            // this.Log("Request handled. " + request.diffAmount + " * " + multiplier + " = " + (delta + request.diffAmount));
         }
         else {
             this.lastRequestHandled = false;
-
-            // this.Log("request not handled.");
         }
-    }
-
-    private func Log(msg: String) -> Void {
-        LogChannel(n"ERMSystem", msg);
     }
 }
 
@@ -114,12 +91,6 @@ public class ERMHandleEddiesChangedRequest extends ScriptableSystemRequest {
     public let diffAmount: Int32;
 }
 
-@if(!ModuleExists("ModSettingsModule"))
 public func GetSettings() -> ref<ERMSettings> {
     return new ERMSettings();
-}
-
-@if(ModuleExists("ModSettingsModule"))
-public func GetSettings() -> ref<ERMSettings> {
-    return new Menu();
 }
