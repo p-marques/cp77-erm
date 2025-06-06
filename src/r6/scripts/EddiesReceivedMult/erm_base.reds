@@ -1,5 +1,6 @@
 module ERM.Base
 import ERM.Settings.ERMSettings
+import ERM.Settings.Menu
 
 public class ERMSystem extends ScriptableSystem {
     private let player: ref<PlayerPuppet>;
@@ -91,6 +92,12 @@ public class ERMHandleEddiesChangedRequest extends ScriptableSystemRequest {
     public let diffAmount: Int32;
 }
 
+@if(!ModuleExists("ModSettingsModule"))
 public func GetSettings() -> ref<ERMSettings> {
     return new ERMSettings();
+}
+
+@if(ModuleExists("ModSettingsModule"))
+public func GetSettings() -> ref<ERMSettings> {
+    return new Menu();
 }
